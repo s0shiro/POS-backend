@@ -6,9 +6,16 @@ import { auth } from '../lib/auth.ts'
 
 type Session = typeof auth.$Infer.Session
 
-export interface AuthenticatedRequest extends Request {
+export interface AuthenticatedRequest<
+  TParams = object,
+  TBody = object,
+  TQuery = object,
+> extends Request {
   user: Session['user']
   authSession: Session['session']
+  params: TParams & Request['params']
+  body: TBody
+  query: TQuery & Request['query']
 }
 
 export async function requireAuth(
