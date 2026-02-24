@@ -2,6 +2,7 @@ import express from 'express'
 import cors from 'cors'
 import morgan from 'morgan'
 import helmet from 'helmet'
+import path from 'path'
 import env, { isTest } from '../env.ts'
 import { errorHandler } from './middleware/errorHandler.ts'
 import { toNodeHandler } from 'better-auth/node'
@@ -13,6 +14,7 @@ import tablesRouter from './routes/tablesRoutes.ts'
 import ordersRouter from './routes/ordersRoutes.ts'
 import paymentsRouter from './routes/paymentsRoutes.ts'
 import kdsRouter from './routes/kdsRoutes.ts'
+import salesRouter from './routes/salesRoutes.ts'
 
 const app = express()
 app.use(
@@ -24,6 +26,7 @@ app.use(
         'style-src': ["'self'", "'unsafe-inline'", 'cdn.jsdelivr.net'],
       },
     },
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
   }),
 )
 app.use(
@@ -43,11 +46,12 @@ app.all('/api/auth/{*any}', toNodeHandler(auth))
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
 
+// Serve uploaded images statically
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')))
+
 app.get('/health', (req, res) => {
   res.json({ message: 'Ok!' })
 })
-
-app.use(errorHandler)
 
 app.use('/api/menu/categories', categoriesRouter)
 app.use('/api/menu/items', menuItemsRouter)
@@ -55,5 +59,9 @@ app.use('/api/tables', tablesRouter)
 app.use('/api/orders', ordersRouter)
 app.use('/api/payments', paymentsRouter)
 app.use('/api/kds', kdsRouter)
+app.use('/api/sales', salesRouter)
+
+// Error handler must be registered AFTER all routes
+app.use(errorHandler)
 
 export default app
