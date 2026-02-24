@@ -41,8 +41,9 @@ const orderStatusEnum = z.enum([
 const orderTypeEnum = z.enum(['dine_in', 'takeaway', 'delivery'])
 
 const selectedModifierSchema = z.object({
-  name: z.string(),
-  price: z.number().min(0).optional().default(0),
+  id: z.uuid('Invalid modifier ID'),
+  name: z.string().optional(),
+  price: z.number().min(0).optional(), // Optional - will be fetched from DB
 })
 
 const orderItemSchema = z.object({
@@ -149,6 +150,12 @@ router.post(
 router.get('/:id/receipt', validateParams(orderIdParamSchema), generateReceipt)
 
 // ===== Types =====
+
+export interface SelectedModifier {
+  id: string
+  name?: string
+  price?: number
+}
 
 export type CreateOrderBody = z.infer<typeof createOrderSchema>
 export type UpdateOrderBody = z.infer<typeof updateOrderSchema>

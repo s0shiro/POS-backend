@@ -12,8 +12,19 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
   },
+  user: {
+    additionalFields: {
+      role: {
+        type: 'string',
+        defaultValue: 'cashier',
+      },
+    },
+  },
   plugins: [
-    admin({ defaultRole: 'cashier' }),
+    admin({
+      defaultRole: 'cashier',
+      adminRoles: ['admin'],
+    }),
     oneTimeToken({
       expiresIn: 5, // 5 minutes - enough time to establish WebSocket connection
     }),
