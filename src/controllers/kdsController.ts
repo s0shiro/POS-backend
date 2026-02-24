@@ -99,7 +99,7 @@ export const getKitchenStats = async (
       .where(
         and(
           eq(orders.status, 'completed'),
-          sql`${orders.updatedAt} >= ${today}`,
+          sql`date(${orders.updatedAt}, 'unixepoch') = date('now')`,
         ),
       )
 
@@ -193,6 +193,7 @@ export const markReady = async (
         isPaid: true,
         orderNumber: true,
         tableNumber: true,
+        type: true,
       },
     })
 
@@ -226,10 +227,12 @@ export const markReady = async (
     })
 
     // Emit to cashier (order ready for pickup notification)
+    // This also automatically broadcasts to customer display
     emitOrderReady({
       id: updated.id,
       orderNumber: updated.orderNumber!,
       tableNumber: updated.tableNumber,
+      type: order.type!,
     })
 
     res.json({

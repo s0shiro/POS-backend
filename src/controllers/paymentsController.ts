@@ -13,7 +13,14 @@ import type {
   ProcessRefundBody,
   UpdatePaymentBody,
 } from '../routes/paymentsRoutes.ts'
-import { emitNewOrder, type KDSOrder } from '../lib/socket.ts'
+import {
+  emitNewOrder,
+  emitPrintKitchen,
+  emitPrintReceipt,
+  type KDSOrder,
+  type PrintKitchenData,
+  type PrintReceiptData,
+} from '../lib/socket.ts'
 
 // GET /api/payments
 export const getAllPayments = async (
@@ -259,6 +266,51 @@ export const createPayment = async (
         })),
       }
       emitNewOrder(kdsOrder)
+
+      // Emit print receipt event
+      const printData: PrintReceiptData = {
+        orderId: completePayment.order.id,
+        orderNumber: completePayment.order.orderNumber!,
+        items: completePayment.order.items.map((item) => ({
+          name: item.menuItem.name,
+          quantity: item.quantity,
+          price: parseFloat(item.priceAtTime), // Use priceAtTime (includes modifiers)
+          modifiers:
+            (item.selectedModifiers as {
+              id: string
+              name: string
+              price: number
+            }[]) ?? [],
+        })),
+        subtotal: parseFloat(order.totalAmount!),
+        tax: tax ?? 0,
+        total: finalAmount,
+        paymentMethod: method,
+        amountPaid: receivedAmount ?? finalAmount,
+        change: change,
+        tableNumber: completePayment.order.tableNumber,
+        cashier: req.user?.name ?? 'Unknown',
+        createdAt: completePayment.order.createdAt!,
+      }
+      emitPrintReceipt(printData)
+
+      // Emit print kitchen ticket event
+      const kitchenPrintData: PrintKitchenData = {
+        orderId: completePayment.order.id,
+        orderNumber: completePayment.order.orderNumber!,
+        tableNumber: completePayment.order.tableNumber,
+        type: completePayment.order.type!,
+        items: completePayment.order.items.map((item) => ({
+          name: item.menuItem.name,
+          quantity: item.quantity,
+          notes: item.notes,
+          modifiers:
+            (item.selectedModifiers as { name: string; price: number }[]) ?? [],
+        })),
+        notes: completePayment.order.notes,
+        createdAt: completePayment.order.createdAt!,
+      }
+      emitPrintKitchen(kitchenPrintData)
     }
 
     res.status(201).json({
