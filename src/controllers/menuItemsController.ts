@@ -1,16 +1,19 @@
 import type { NextFunction, Response } from 'express'
 import { and, eq } from 'drizzle-orm'
+import fs from 'fs'
+import path from 'path'
 import db from '../db/connection.ts'
 import { menuCategories, menuItems, modifiers } from '../db/schema/menu.ts'
+import { orderItems } from '../db/schema/orders.ts'
 import { APIError } from '../middleware/errorHandler.ts'
 import type { AuthenticatedRequest } from '../middleware/requireAuth.ts'
-import type {
-  CreateMenuItemBody,
-  CreateModifierBody,
-  MenuItemIdParam,
-  MenuItemQueryParams,
-  ModifierIdParam,
-  UpdateMenuItemBody,
+import {
+  createMenuItemSchema,
+  updateMenuItemSchema,
+  type CreateModifierBody,
+  type MenuItemIdParam,
+  type MenuItemQueryParams,
+  type ModifierIdParam,
 } from '../routes/menuItemsRoutes.ts'
 
 // GET /api/menu/items
@@ -70,12 +73,21 @@ export const getMenuItemById = async (
 
 // POST /api/menu/items
 export const createMenuItem = async (
-  req: AuthenticatedRequest<object, CreateMenuItemBody>,
+  req: AuthenticatedRequest,
   res: Response,
   next: NextFunction,
 ) => {
   try {
-    const { categoryId } = req.body
+    const parsed = createMenuItemSchema.safeParse(req.body)
+    if (!parsed.success) {
+      throw new APIError(
+        parsed.error.issues[0].message,
+        'VALIDATION_ERROR',
+        400,
+      )
+    }
+    const body = parsed.data
+    const { categoryId } = body
 
     // Verify category exists
     const [category] = await db
@@ -87,7 +99,21 @@ export const createMenuItem = async (
       throw new APIError('Category not found', 'NOT_FOUND', 404)
     }
 
-    const [item] = await db.insert(menuItems).values(req.body).returning()
+    // Handle uploaded image
+    const file = req.file as Express.Multer.File | undefined
+    const image = file ? `/uploads/${file.filename}` : body.image || null
+
+    const [item] = await db
+      .insert(menuItems)
+      .values({
+        categoryId: body.categoryId,
+        name: body.name,
+        description: body.description,
+        price: body.price,
+        image,
+        isAvailable: body.isAvailable,
+      })
+      .returning()
 
     res.status(201).json({ success: true, data: item })
   } catch (error) {
@@ -97,17 +123,25 @@ export const createMenuItem = async (
 
 // PUT /api/menu/items/:id
 export const updateMenuItem = async (
-  req: AuthenticatedRequest<MenuItemIdParam, Partial<UpdateMenuItemBody>>,
+  req: AuthenticatedRequest<MenuItemIdParam>,
   res: Response,
   next: NextFunction,
 ) => {
   try {
     const { id } = req.params
-    const data = req.body
+    const parsed = updateMenuItemSchema.safeParse(req.body)
+    if (!parsed.success) {
+      throw new APIError(
+        parsed.error.issues[0].message,
+        'VALIDATION_ERROR',
+        400,
+      )
+    }
+    const data = parsed.data
 
     // Verify item exists
     const [existing] = await db
-      .select({ id: menuItems.id })
+      .select({ id: menuItems.id, image: menuItems.image })
       .from(menuItems)
       .where(eq(menuItems.id, id))
 
@@ -127,9 +161,21 @@ export const updateMenuItem = async (
       }
     }
 
+    // Handle uploaded image
+    const file = req.file as Express.Multer.File | undefined
+    let image: string | null | undefined = data.image
+    if (file) {
+      image = `/uploads/${file.filename}`
+      // Delete old image file if it was a local upload
+      if (existing.image && existing.image.startsWith('/uploads/')) {
+        const oldPath = path.join(process.cwd(), existing.image)
+        fs.unlink(oldPath, () => {}) // fire and forget
+      }
+    }
+
     const [updated] = await db
       .update(menuItems)
-      .set(data)
+      .set({ ...data, image: image !== undefined ? image : undefined })
       .where(eq(menuItems.id, id))
       .returning()
 
@@ -155,6 +201,29 @@ export const deleteMenuItem = async (
 
     if (!existing) {
       throw new APIError('Menu item not found', 'NOT_FOUND', 404)
+    }
+
+    // Check if menu item is used in any orders
+    const [usedInOrder] = await db
+      .select({ id: orderItems.id })
+      .from(orderItems)
+      .where(eq(orderItems.menuItemId, id))
+      .limit(1)
+
+    if (usedInOrder) {
+      // Instead of deleting, mark as unavailable to preserve order history
+      await db
+        .update(menuItems)
+        .set({ isAvailable: false })
+        .where(eq(menuItems.id, id))
+
+      res.json({
+        success: true,
+        message:
+          'Menu item has been marked as unavailable because it is referenced in existing orders. It will no longer appear in the menu.',
+        archived: true,
+      })
+      return
     }
 
     // Delete related modifiers first

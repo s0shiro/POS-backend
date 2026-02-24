@@ -15,6 +15,7 @@ import {
   validateParams,
   validateQuery,
 } from '../middleware/validation.ts'
+import { upload } from '../middleware/upload.ts'
 import z from 'zod'
 
 const router = Router()
@@ -28,8 +29,11 @@ export const createMenuItemSchema = z.object({
   name: z.string().min(1, 'Name is required').max(100),
   description: z.string().max(500).optional(),
   price: z.string().regex(/^\d+(\.\d{1,2})?$/, 'Invalid price format'),
-  image: z.string().url().optional(),
-  isAvailable: z.boolean().optional().default(true),
+  image: z.string().optional(),
+  isAvailable: z
+    .union([z.boolean(), z.string().transform((val) => val === 'true')])
+    .optional()
+    .default(true),
 })
 
 export const updateMenuItemSchema = createMenuItemSchema.partial()
@@ -68,17 +72,12 @@ router.get('/', validateQuery(menuItemQuerySchema), getAllMenuItems)
 router.get('/:id', validateParams(menuItemIdParamSchema), getMenuItemById)
 
 // CUD routes - admin only
-router.post(
-  '/',
-  adminMiddleware,
-  validateBody(createMenuItemSchema),
-  createMenuItem,
-)
+router.post('/', adminMiddleware, upload.single('image'), createMenuItem)
 router.put(
   '/:id',
   adminMiddleware,
   validateParams(menuItemIdParamSchema),
-  validateBody(updateMenuItemSchema),
+  upload.single('image'),
   updateMenuItem,
 )
 router.delete(

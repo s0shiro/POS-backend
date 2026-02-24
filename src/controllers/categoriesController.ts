@@ -1,9 +1,9 @@
 import type { NextFunction, Response } from 'express'
 import type { AuthenticatedRequest } from '../middleware/requireAuth.ts'
 import db from '../db/connection.ts'
-import { menuCategories } from '../db/schema/menu.ts'
+import { menuCategories, menuItems } from '../db/schema/menu.ts'
 import { APIError } from '../middleware/errorHandler.ts'
-import { eq } from 'drizzle-orm'
+import { eq, count } from 'drizzle-orm'
 import type {
   CategoryIdParam,
   CreateCategoryBody,
@@ -127,6 +127,20 @@ export const deleteCategory = async (
 
     if (!existing) {
       throw new APIError('Category not found', 'NOT_FOUND', 404)
+    }
+
+    // Check if category has menu items
+    const [itemCount] = await db
+      .select({ count: count() })
+      .from(menuItems)
+      .where(eq(menuItems.categoryId, id))
+
+    if (itemCount.count > 0) {
+      throw new APIError(
+        `Cannot delete category "${existing.name}" because it has ${itemCount.count} menu item(s). Please reassign or delete them first.`,
+        'CONFLICT',
+        409,
+      )
     }
 
     await db.delete(menuCategories).where(eq(menuCategories.id, id))

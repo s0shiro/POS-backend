@@ -1,7 +1,7 @@
 import type { NextFunction, Response } from 'express'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import db from '../db/connection.ts'
-import { menuItems } from '../db/schema/menu.ts'
+import { menuItems, modifiers } from '../db/schema/menu.ts'
 import { orderItems, orders } from '../db/schema/orders.ts'
 import { tables } from '../db/schema/tables.ts'
 import { APIError } from '../middleware/errorHandler.ts'
@@ -12,6 +12,7 @@ import type {
   OrderIdParam,
   OrderItemIdParam,
   OrderQueryParams,
+  SelectedModifier,
   UpdateOrderBody,
   UpdateOrderStatusBody,
 } from '../routes/ordersRoutes.ts'
@@ -140,7 +141,12 @@ export const createOrder = async (
     const fetchedMenuItems = await db
       .select()
       .from(menuItems)
-      .where(and(eq(menuItems.isAvailable, true)))
+      .where(
+        and(
+          eq(menuItems.isAvailable, true),
+          inArray(menuItems.id, menuItemIds),
+        ),
+      )
 
     const menuItemsMap = new Map(
       fetchedMenuItems.map((item) => [item.id, item]),
@@ -158,19 +164,64 @@ export const createOrder = async (
       }
     }
 
+    // Collect all modifier IDs from the request
+    const allModifierIds: string[] = []
+    for (const item of items) {
+      const itemModifiers = item.selectedModifiers as
+        | SelectedModifier[]
+        | undefined
+      if (itemModifiers && itemModifiers.length > 0) {
+        for (const mod of itemModifiers) {
+          if (mod.id) allModifierIds.push(mod.id)
+        }
+      }
+    }
+
+    // Fetch modifier prices from database
+    let modifiersMap = new Map<
+      string,
+      { id: string; name: string; priceAdjustment: string | null }
+    >()
+    if (allModifierIds.length > 0) {
+      const fetchedModifiers = await db
+        .select({
+          id: modifiers.id,
+          name: modifiers.name,
+          priceAdjustment: modifiers.priceAdjustment,
+        })
+        .from(modifiers)
+        .where(inArray(modifiers.id, allModifierIds))
+
+      modifiersMap = new Map(fetchedModifiers.map((mod) => [mod.id, mod]))
+    }
+
     // Calculate total amount
     let totalAmount = 0
     const orderItemsData = items.map((item) => {
       const menuItem = menuItemsMap.get(item.menuItemId)!
       const basePrice = parseFloat(menuItem.price)
 
-      // Calculate modifier prices
+      // Calculate modifier prices from database
       let modifierTotal = 0
-      if (item.selectedModifiers && item.selectedModifiers.length > 0) {
-        modifierTotal = item.selectedModifiers.reduce(
-          (sum, mod) => sum + (mod.price || 0),
-          0,
-        )
+      const resolvedModifiers: { id: string; name: string; price: number }[] =
+        []
+
+      const itemModifiers = item.selectedModifiers as
+        | SelectedModifier[]
+        | undefined
+      if (itemModifiers && itemModifiers.length > 0) {
+        for (const mod of itemModifiers) {
+          const dbModifier = mod.id ? modifiersMap.get(mod.id) : null
+          const price = dbModifier?.priceAdjustment
+            ? parseFloat(dbModifier.priceAdjustment)
+            : 0
+          modifierTotal += price
+          resolvedModifiers.push({
+            id: mod.id || '',
+            name: dbModifier?.name || mod.name || '',
+            price,
+          })
+        }
       }
 
       const unitPrice = basePrice + modifierTotal
@@ -182,7 +233,8 @@ export const createOrder = async (
         quantity: item.quantity,
         priceAtTime: unitPrice.toFixed(2),
         notes: item.notes ?? null,
-        selectedModifiers: item.selectedModifiers ?? null,
+        selectedModifiers:
+          resolvedModifiers.length > 0 ? resolvedModifiers : null,
       }
     })
 
@@ -431,15 +483,48 @@ export const addOrderItem = async (
       throw new APIError('Menu item not found or unavailable', 'NOT_FOUND', 404)
     }
 
-    // Calculate price
+    // Fetch modifier prices from database
+    const itemModifiers = selectedModifiers as SelectedModifier[] | undefined
+    const modifierIds =
+      (itemModifiers?.map((mod) => mod.id).filter(Boolean) as string[]) || []
+    let modifiersMap = new Map<
+      string,
+      { id: string; name: string; priceAdjustment: string | null }
+    >()
+
+    if (modifierIds.length > 0) {
+      const fetchedModifiers = await db
+        .select({
+          id: modifiers.id,
+          name: modifiers.name,
+          priceAdjustment: modifiers.priceAdjustment,
+        })
+        .from(modifiers)
+        .where(inArray(modifiers.id, modifierIds))
+
+      modifiersMap = new Map(fetchedModifiers.map((mod) => [mod.id, mod]))
+    }
+
+    // Calculate price with modifiers from database
     const basePrice = parseFloat(menuItem.price)
     let modifierTotal = 0
-    if (selectedModifiers && selectedModifiers.length > 0) {
-      modifierTotal = selectedModifiers.reduce(
-        (sum, mod) => sum + (mod.price || 0),
-        0,
-      )
+    const resolvedModifiers: { id: string; name: string; price: number }[] = []
+
+    if (itemModifiers && itemModifiers.length > 0) {
+      for (const mod of itemModifiers) {
+        const dbModifier = mod.id ? modifiersMap.get(mod.id) : null
+        const price = dbModifier?.priceAdjustment
+          ? parseFloat(dbModifier.priceAdjustment)
+          : 0
+        modifierTotal += price
+        resolvedModifiers.push({
+          id: mod.id || '',
+          name: dbModifier?.name || mod.name || '',
+          price,
+        })
+      }
     }
+
     const unitPrice = basePrice + modifierTotal
     const itemTotal = unitPrice * quantity
 
@@ -451,7 +536,8 @@ export const addOrderItem = async (
         quantity,
         priceAtTime: unitPrice.toFixed(2),
         notes: notes ?? null,
-        selectedModifiers: selectedModifiers ?? null,
+        selectedModifiers:
+          resolvedModifiers.length > 0 ? resolvedModifiers : null,
       })
 
       const newTotal = parseFloat(order.totalAmount!) + itemTotal
