@@ -17,9 +17,10 @@
   "license": "ISC",
   "type": "module",
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/express": "^5.0.6",
+    "@types/multer": "^2.0.0",
     "@types/node": "^25.0.8",
-    "@types/pg": "^8.16.0",
     "dotenv": "^17.2.3",
     "drizzle-kit": "^0.31.8",
     "eslint": "^9.39.2",
@@ -34,12 +35,14 @@
   "dependencies": {
     "@epic-web/remember": "^1.1.0",
     "better-auth": "^1.4.12",
+    "better-sqlite3": "^12.6.2",
     "cors": "^2.8.5",
     "custom-env": "^2.0.6",
     "drizzle-orm": "^0.45.1",
     "helmet": "^8.1.0",
     "morgan": "^1.10.1",
-    "pg": "^8.16.3",
+    "multer": "^2.0.2",
+    "pg": "^8.18.0",
     "socket.io": "^4.8.3",
     "zod": "^4.3.5"
   }
