@@ -54,7 +54,6 @@ const orderItemSchema = z.object({
 })
 
 export const createOrderSchema = z.object({
-  tableId: z.uuid('Invalid table ID').optional(),
   tableNumber: z.string().min(1).max(20).optional(), // Simple string like "47", "A1"
   type: orderTypeEnum,
   items: z.array(orderItemSchema).min(1, 'At least one item is required'),
@@ -63,7 +62,6 @@ export const createOrderSchema = z.object({
 
 export const updateOrderSchema = z.object({
   type: orderTypeEnum.optional(),
-  tableId: z.uuid('Invalid table ID').nullable().optional(),
   tableNumber: z.string().min(1).max(20).nullable().optional(),
   notes: z.string().max(500).nullable().optional(),
 })
@@ -86,7 +84,6 @@ export const orderItemIdParamSchema = z.object({
 export const orderQuerySchema = z.object({
   status: orderStatusEnum.optional(),
   type: orderTypeEnum.optional(),
-  tableId: z.uuid().optional(),
   tableNumber: z.string().optional(),
   isPaid: z
     .string()

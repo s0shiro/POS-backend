@@ -124,7 +124,6 @@ export const createPayment = async (
         id: true,
         status: true,
         totalAmount: true,
-        tableId: true,
         isPaid: true,
       },
     })

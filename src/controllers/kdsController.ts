@@ -90,16 +90,13 @@ export const getKitchenStats = async (
       .where(eq(orders.status, 'ready'))
 
     // Count completed orders today
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-
     const completedTodayCount = await db
       .select({ count: count() })
       .from(orders)
       .where(
         and(
           eq(orders.status, 'completed'),
-          sql`date(${orders.updatedAt}, 'unixepoch') = date('now')`,
+          sql`DATE(${orders.updatedAt}) = CURRENT_DATE`,
         ),
       )
 

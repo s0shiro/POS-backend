@@ -3,7 +3,6 @@ import { and, eq, inArray } from 'drizzle-orm'
 import db from '../db/connection.ts'
 import { menuItems, modifiers } from '../db/schema/menu.ts'
 import { orderItems, orders } from '../db/schema/orders.ts'
-import { tables } from '../db/schema/tables.ts'
 import { APIError } from '../middleware/errorHandler.ts'
 import type { AuthenticatedRequest } from '../middleware/requireAuth.ts'
 import type {
@@ -24,18 +23,17 @@ export const getAllOrders = async (
   next: NextFunction,
 ) => {
   try {
-    const { status, type, tableId, tableNumber, isPaid } = req.query
+    const { status, type, tableNumber, isPaid } = req.query
 
     const result = await db.query.orders.findMany({
+      columns: { tableId: false },
       where: and(
         status ? eq(orders.status, status) : undefined,
         type ? eq(orders.type, type) : undefined,
-        tableId ? eq(orders.tableId, tableId) : undefined,
         tableNumber ? eq(orders.tableNumber, tableNumber) : undefined,
         isPaid !== undefined ? eq(orders.isPaid, isPaid) : undefined,
       ),
       with: {
-        table: true,
         createdBy: {
           columns: {
             id: true,
@@ -69,9 +67,9 @@ export const getOrderById = async (
     const { id } = req.params
 
     const order = await db.query.orders.findFirst({
+      columns: { tableId: false },
       where: eq(orders.id, id),
       with: {
-        table: true,
         createdBy: {
           columns: {
             id: true,
@@ -112,28 +110,16 @@ export const createOrder = async (
   next: NextFunction,
 ) => {
   try {
-    const { tableId, tableNumber, type, items, notes } = req.body
+    const { tableNumber, type, items, notes } = req.body
     const userId = req.user.id
 
-    // For McDonald's model: dine_in requires tableNumber (string), not tableId
-    if (type === 'dine_in' && !tableNumber && !tableId) {
+    // For dine-in orders, tableNumber (string) is required
+    if (type === 'dine_in' && !tableNumber) {
       throw new APIError(
         'Table number is required for dine-in orders',
         'VALIDATION_ERROR',
         400,
       )
-    }
-
-    // If tableId provided (legacy/future use), validate it exists
-    if (tableId) {
-      const [table] = await db
-        .select({ id: tables.id, status: tables.status })
-        .from(tables)
-        .where(eq(tables.id, tableId))
-
-      if (!table) {
-        throw new APIError('Table not found', 'NOT_FOUND', 404)
-      }
     }
 
     // Validate and fetch menu items
@@ -248,7 +234,6 @@ export const createOrder = async (
         .insert(orders)
         .values({
           orderNumber,
-          tableId: tableId ?? null,
           tableNumber: tableNumber ?? null,
           userId,
           type,
@@ -272,9 +257,9 @@ export const createOrder = async (
 
     // Fetch complete order with relations
     const completeOrder = await db.query.orders.findFirst({
+      columns: { tableId: false },
       where: eq(orders.id, order.id),
       with: {
-        table: true,
         items: {
           with: {
             menuItem: true,
@@ -340,7 +325,7 @@ export const deleteOrder = async (
 
     const order = await db.query.orders.findFirst({
       where: eq(orders.id, id),
-      columns: { id: true, status: true, tableId: true },
+      columns: { id: true, status: true },
     })
 
     if (!order) {
@@ -362,14 +347,6 @@ export const deleteOrder = async (
 
       // Delete order
       await tx.delete(orders).where(eq(orders.id, id))
-
-      // Free up table if dine-in
-      if (order.tableId) {
-        await tx
-          .update(tables)
-          .set({ status: 'available' })
-          .where(eq(tables.id, order.tableId))
-      }
     })
 
     res.json({ success: true, message: 'Order deleted successfully' })
@@ -390,7 +367,7 @@ export const updateOrderStatus = async (
 
     const order = await db.query.orders.findFirst({
       where: eq(orders.id, id),
-      columns: { id: true, status: true, tableId: true },
+      columns: { id: true, status: true },
     })
 
     if (!order) {
@@ -415,22 +392,12 @@ export const updateOrderStatus = async (
       )
     }
 
-    await db.transaction(async (tx) => {
-      await tx.update(orders).set({ status }).where(eq(orders.id, id))
-
-      // Free up table when order is completed or cancelled
-      if ((status === 'completed' || status === 'canceled') && order.tableId) {
-        await tx
-          .update(tables)
-          .set({ status: 'available' })
-          .where(eq(tables.id, order.tableId))
-      }
-    })
+    await db.update(orders).set({ status }).where(eq(orders.id, id))
 
     const updated = await db.query.orders.findFirst({
+      columns: { tableId: false },
       where: eq(orders.id, id),
       with: {
-        table: true,
         items: {
           with: {
             menuItem: true,
@@ -548,6 +515,7 @@ export const addOrderItem = async (
     })
 
     const updated = await db.query.orders.findFirst({
+      columns: { tableId: false },
       where: eq(orders.id, orderId),
       with: {
         items: {
@@ -616,6 +584,7 @@ export const removeOrderItem = async (
     })
 
     const updated = await db.query.orders.findFirst({
+      columns: { tableId: false },
       where: eq(orders.id, orderId),
       with: {
         items: {
@@ -642,9 +611,9 @@ export const generateReceipt = async (
     const { id } = req.params
 
     const order = await db.query.orders.findFirst({
+      columns: { tableId: false },
       where: eq(orders.id, id),
       with: {
-        table: true,
         createdBy: {
           columns: {
             id: true,
@@ -680,7 +649,7 @@ export const generateReceipt = async (
       orderNumber: order.orderNumber,
       date: order.createdAt,
       type: order.type,
-      tableNumber: order.tableNumber ?? order.table?.number ?? null,
+      tableNumber: order.tableNumber ?? null,
       cashier: order.createdBy?.name ?? 'Unknown',
 
       // Items
