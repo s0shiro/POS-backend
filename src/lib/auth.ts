@@ -32,11 +32,12 @@ export const auth = betterAuth({
   trustedOrigins: [env.FRONTEND_URL],
   advanced: {
     crossSubDomainCookies: {
-      enabled: false, // Disable for different domains
+      enabled: false,
     },
     defaultCookieAttributes: {
-      sameSite: 'none', // Required for cross-origin
-      secure: true, // Required when sameSite is "none"
+      sameSite: 'lax', // Works with Vercel proxy
+      secure: true,
+      path: '/',
     },
   },
 })
