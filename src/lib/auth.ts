@@ -30,5 +30,13 @@ export const auth = betterAuth({
     }),
   ],
   trustedOrigins: [env.FRONTEND_URL],
-  advanced: { disableOriginCheck: true },
+  advanced: {
+    crossSubDomainCookies: {
+      enabled: false, // Disable for different domains
+    },
+    defaultCookieAttributes: {
+      sameSite: 'none', // Required for cross-origin
+      secure: true, // Required when sameSite is "none"
+    },
+  },
 })
