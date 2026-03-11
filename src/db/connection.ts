@@ -1,5 +1,5 @@
 import { Pool } from 'pg'
-import { env, isProd } from '../../env.ts'
+import { env, isProd } from '../env.ts'
 import * as schema from './schema/index.ts'
 import { remember } from '@epic-web/remember'
 import { drizzle } from 'drizzle-orm/node-postgres'

@@ -1,5 +1,5 @@
 import { createServer } from 'http'
-import env from '../env.ts'
+import env from './env.ts'
 import app from './server.ts'
 import { initSocket } from './lib/socket.ts'
 

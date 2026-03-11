@@ -3,7 +3,7 @@ import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import db from '../db/connection.ts'
 import { admin } from 'better-auth/plugins'
 import { oneTimeToken } from 'better-auth/plugins/one-time-token'
-import env from '../../env.ts'
+import env from '../env.ts'
 
 export const auth = betterAuth({
   database: drizzleAdapter(db, {
