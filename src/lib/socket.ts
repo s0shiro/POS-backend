@@ -3,6 +3,7 @@ import { Server, Socket } from 'socket.io'
 import db from '../db/connection.ts'
 import { user } from '../db/schema/auth.ts'
 import { eq } from 'drizzle-orm'
+import { auth } from './auth.ts'
 
 let io: Server | null = null
 
@@ -27,52 +28,67 @@ export const initSocket = (httpServer: HTTPServer) => {
     },
   })
 
-  // Authentication middleware using one-time-token
+  // Authentication middleware - supports both one-time-token and API key
   io.use(async (socket, next) => {
     try {
-      // Support token from auth object OR query parameter (for Postman)
-      const token = socket.handshake.auth.token || socket.handshake.query.token
+      const rawToken =
+        socket.handshake.auth.token || socket.handshake.query.token
+      const token = Array.isArray(rawToken) ? rawToken[0] : rawToken
 
-      console.log('[Socket] Auth attempt, token:', token ? token : 'missing')
+      const rawApiKey =
+        socket.handshake.auth.apiKey ||
+        socket.handshake.query.apiKey ||
+        socket.handshake.headers['x-api-key']
+      const apiKeyValue = Array.isArray(rawApiKey) ? rawApiKey[0] : rawApiKey
 
-      if (!token) {
+      console.log(
+        '[Socket] Auth attempt, token:',
+        !!token,
+        'apiKey:',
+        !!apiKeyValue,
+      )
+
+      if (!token && !apiKeyValue) {
         return next(new Error('Authentication required'))
       }
 
-      // Verify one-time token by calling the API endpoint directly
-      const baseUrl = process.env.BETTER_AUTH_URL || 'http://localhost:3000'
-      const response = await fetch(
-        `${baseUrl}/api/auth/one-time-token/verify`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ token }),
-        },
-      )
+      let userId: string | undefined
 
-      console.log('[Socket] Verify response status:', response.status)
+      if (apiKeyValue && typeof apiKeyValue === 'string') {
+        // Use getSession with x-api-key header — relies on enableSessionForAPIKeys: true
+        const session = await auth.api.getSession({
+          headers: new Headers({ 'x-api-key': apiKeyValue }),
+        })
 
-      if (!response.ok) {
-        const errorText = await response.text()
-        console.log('[Socket] Verify error:', errorText)
-        return next(new Error('Invalid or expired token'))
+        if (!session?.user?.id) {
+          console.log('[Socket] API key session lookup failed')
+          return next(new Error('Invalid or expired API key'))
+        }
+
+        userId = session.user.id
+        console.log('[Socket] API key verified for userId:', userId)
+      } else if (token && typeof token === 'string') {
+        // Verify one-time token using better-auth server API
+        const result = await auth.api.verifyOneTimeToken({
+          body: { token },
+        })
+
+        userId = result?.user?.id || result?.session?.userId
+
+        if (!userId) {
+          console.log(
+            '[Socket] No userId in OTT result:',
+            JSON.stringify(result, null, 2),
+          )
+          return next(new Error('Invalid token response'))
+        }
       }
-
-      const result = await response.json()
-      console.log('[Socket] Verify result:', JSON.stringify(result, null, 2))
-
-      // Get user from result
-      const userId =
-        result?.userId || result?.user?.id || result?.session?.userId
 
       if (!userId) {
-        console.log('[Socket] No userId in result')
-        return next(new Error('Invalid token response'))
+        return next(new Error('Authentication failed'))
       }
 
-      // Fetch full user from database
+      // Fetch full user from database to get role and other fields
       const [userData] = await db.select().from(user).where(eq(user.id, userId))
 
       if (!userData) {
@@ -90,9 +106,10 @@ export const initSocket = (httpServer: HTTPServer) => {
         userData.role,
       )
       next()
-    } catch (error) {
-      console.error('[Socket] Auth error:', error)
-      next(new Error('Authentication failed'))
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.error('[Socket] Auth error:', message)
+      next(new Error(message || 'Authentication failed'))
     }
   })
 
@@ -112,7 +129,11 @@ export const initSocket = (httpServer: HTTPServer) => {
     }
 
     // Printer role joins printer room
-    if (userData.role === 'printer') {
+    if (
+      userData.role === 'printer' ||
+      userData.role === 'kitchen' ||
+      userData.role === 'admin'
+    ) {
       socket.join('printer')
       console.log(`[Socket] ${userData.email} joined printer room`)
 

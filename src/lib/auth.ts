@@ -3,6 +3,7 @@ import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import db from '../db/connection.ts'
 import { admin } from 'better-auth/plugins'
 import { oneTimeToken } from 'better-auth/plugins/one-time-token'
+import { apiKey } from '@better-auth/api-key'
 import env from '../env.ts'
 
 export const auth = betterAuth({
@@ -26,7 +27,10 @@ export const auth = betterAuth({
       adminRoles: ['admin'],
     }),
     oneTimeToken({
-      expiresIn: 5, // 5 minutes - enough time to establish WebSocket connection
+      expiresIn: 5,
+    }),
+    apiKey({
+      enableSessionForAPIKeys: true,
     }),
   ],
   trustedOrigins: [env.FRONTEND_URL],
@@ -35,7 +39,7 @@ export const auth = betterAuth({
       enabled: false,
     },
     defaultCookieAttributes: {
-      sameSite: 'lax', // Works with Vercel proxy
+      sameSite: 'lax',
       secure: true,
       path: '/',
     },
